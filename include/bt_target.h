@@ -1508,7 +1508,7 @@
 #endif
 
 #ifndef SDP_AVRCP_1_6
-#define SDP_AVRCP_1_6               TRUE
+#define SDP_AVRCP_1_6               FALSE
 #endif
 
 #ifndef  SDP_AVRCP_1_5
