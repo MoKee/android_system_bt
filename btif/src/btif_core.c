@@ -81,6 +81,7 @@
 #define VENDOR_PAYLOAD_MAXLENGTH   (260)
 #define VENDOR_MAX_CMD_HDR_SIZE    (3)
 #define VENDOR_BD_ADDR_TYPE        (1)
+#define MAX_JNI_WORKQUEUE_COUNT    (1024)
 
 /************************************************************************************
 **  Local type definitions
@@ -126,8 +127,7 @@ static tBTA_SERVICE_MASK btif_enabled_services = 0;
 * To set this, the btif_init_bluetooth needs to be called with argument as 1
 */
 static UINT8 btif_dut_mode = 0;
-
-static thread_t *bt_jni_workqueue_thread;
+thread_t *bt_jni_workqueue_thread;
 static const char *BT_JNI_WORKQUEUE_NAME = "bt_jni_workqueue";
 static uid_set_t* uid_set = NULL;
 
@@ -178,16 +178,19 @@ void bte_main_config_hci_logging(BOOLEAN enable, BOOLEAN bt_disabled);
 
 static void btif_context_switched(void *p_msg)
 {
-
-    BTIF_TRACE_VERBOSE("btif_context_switched");
-
     tBTIF_CONTEXT_SWITCH_CBACK *p = (tBTIF_CONTEXT_SWITCH_CBACK *) p_msg;
 
     /* each callback knows how to parse the data */
     if (p->p_cb)
+    {
+        BTIF_TRACE_VERBOSE("btif_context_switched for event: %u", p->event);
         p->p_cb(p->event, p->p_param);
+    }
+    else
+    {
+        BTIF_TRACE_ERROR("btif_context_switched with null callback");
+    }
 }
-
 
 /*******************************************************************************
 **
@@ -519,7 +522,7 @@ bt_status_t btif_init_bluetooth() {
   memset(&btif_local_bd_addr, 0, sizeof(bt_bdaddr_t));
   btif_fetch_local_bdaddr(&btif_local_bd_addr);
 
-  bt_jni_workqueue_thread = thread_new(BT_JNI_WORKQUEUE_NAME);
+  bt_jni_workqueue_thread = thread_new_sized(BT_JNI_WORKQUEUE_NAME, MAX_JNI_WORKQUEUE_COUNT);
   if (bt_jni_workqueue_thread == NULL) {
     LOG_ERROR(LOG_TAG, "%s Unable to create thread %s", __func__, BT_JNI_WORKQUEUE_NAME);
     goto error_exit;

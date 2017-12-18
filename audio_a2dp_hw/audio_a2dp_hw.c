@@ -1415,7 +1415,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     INFO("success");
     /* Delay to ensure Headset is in proper state when START is initiated
        from DUT immediately after the connection due to ongoing music playback. */
-    usleep(250000);
+    usleep(1000000);
     return 0;
 
 err_open:
@@ -1454,10 +1454,8 @@ static void adev_close_output_stream(struct audio_hw_device *dev,
     skt_disconnect(out->common.ctrl_fd);
 #endif
     out->common.ctrl_fd = AUDIO_SKT_DISCONNECTED;
-#ifdef BT_HOST_IPC_ENABLED
     if (lib_handle)
         dlclose(lib_handle);
-#endif
     free(stream);
     a2dp_dev->output = NULL;
     pthread_mutex_unlock(&out->common.lock);
@@ -1698,10 +1696,8 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
     in->common.ctrl_fd = AUDIO_SKT_DISCONNECTED;
     free(stream);
     a2dp_dev->input = NULL;
-#ifdef BT_HOST_IPC_ENABLED
     if (lib_handle)
         dlclose(lib_handle);
-#endif
     DEBUG("done");
 }
 

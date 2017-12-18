@@ -37,7 +37,8 @@
 #include "port_api.h"
 #include "utl.h"
 #include <cutils/properties.h>
-
+#include "device/include/interop.h"
+#include "btif/include/btif_storage.h"
 
 /*****************************************************************************
 **  Constants
@@ -177,7 +178,7 @@ enum
     BTA_AG_RES_FMT_STR         /* string argument */
 };
 
-/* enumeration of AT result codes, matches constant table */
+/* Local AT command result codes not defined in bta_ag_api.h */
 enum
 {
     BTA_AG_RES_OK,
@@ -207,7 +208,7 @@ enum
 #if defined(BTA_HSP_RESULT_REPLACE_COLON) && (BTA_HSP_RESULT_REPLACE_COLON == TRUE)
 #define COLON_IDX_4_VGSVGM    4
 #endif
-/* AT result code constant table  (Indexed by result code) */
+/* AT result code constant table */
 const tBTA_AG_RESULT bta_ag_result_tbl[] =
 {
     {"OK",      BTA_AG_RES_FMT_NONE},
@@ -233,6 +234,7 @@ const tBTA_AG_RESULT bta_ag_result_tbl[] =
     {"",        BTA_AG_RES_FMT_STR},
     {"+BIND: ", BTA_AG_RES_FMT_STR},
 };
+
 
 const tBTA_AG_AT_CMD *bta_ag_at_tbl[BTA_AG_NUM_IDX] =
 {
@@ -350,10 +352,10 @@ const UINT8 bta_ag_callsetup_ind_tbl[] =
 static void bta_ag_send_result(tBTA_AG_SCB *p_scb, UINT8 code, char *p_arg,
                                INT16 int_arg)
 {
-    char    buf[BTA_AG_AT_MAX_LEN + 16];
-    char    *p = buf;
-    UINT16  len;
 
+    char buf[BTA_AG_AT_MAX_LEN + 16];
+    char *p = buf;
+    UINT16  len;
 #if defined(BTA_AG_RESULT_DEBUG) && (BTA_AG_RESULT_DEBUG == TRUE)
     memset(buf, NULL, sizeof(buf));
 #endif
@@ -364,7 +366,7 @@ static void bta_ag_send_result(tBTA_AG_SCB *p_scb, UINT8 code, char *p_arg,
     /* copy result code string */
     strlcpy(p, bta_ag_result_tbl[code].p_res, sizeof(buf) - 2);
 #if defined(BTA_HSP_RESULT_REPLACE_COLON) && (BTA_HSP_RESULT_REPLACE_COLON == TRUE)
-    if(p_scb->conn_service == BTA_AG_HSP)
+    if (p_scb->conn_service == BTA_AG_HSP)
     {
         /* If HSP then ":"symbol should be changed as "=" for HSP compatibility */
         switch(code)
@@ -972,7 +974,6 @@ void bta_ag_at_hsp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
                                 char *p_arg, INT16 int_arg)
 {
     tBTA_AG_VAL val;
-
     APPL_TRACE_DEBUG("AT cmd:%d arg_type:%d arg:%d arg:%s", cmd, arg_type,
                       int_arg, p_arg);
 
@@ -987,7 +988,6 @@ void bta_ag_at_hsp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
     /* call callback with event */
     (*bta_ag_cb.p_cback)(bta_ag_hsp_cb_evt[cmd], (tBTA_AG *) &val);
 }
-
 /*******************************************************************************
 **
 ** Function         bta_ag_at_hfp_cback
@@ -1236,6 +1236,17 @@ void bta_ag_at_hfp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
             /* store peer features. */
             p_scb->peer_features = (UINT16) int_arg;
             features = p_scb->features & BTA_AG_BSRF_FEAT_SPEC;
+            if (interop_match_addr(INTEROP_DISABLE_HF_INDICATOR,
+                                   (const bt_bdaddr_t*)p_scb->peer_addr))
+            {
+                if ((p_scb->peer_version < HFP_VERSION_1_7) &&
+                     (p_scb->peer_features & BTA_AG_PEER_FEAT_HFIND))
+                {
+                    APPL_TRACE_WARNING("hf indicator needs hfp 1.7 support,"
+                                       "thus remove remote device HF indicator bit");
+                    p_scb->peer_features = p_scb->peer_features &(~BTA_AG_PEER_FEAT_HFIND);
+                }
+            }
             /* if the devices does not support HFP 1.7, report DUT's HFP version as 1.6 */
             if ((p_scb->peer_version < HFP_VERSION_1_7) &&
                  (!(p_scb->peer_features & BTA_AG_PEER_FEAT_HFIND)))
@@ -1258,7 +1269,31 @@ void bta_ag_at_hfp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
                 {
                     features = features & ~(BTA_AG_FEAT_HFIND);
                 }
-             }
+            }
+
+            bt_property_t prop_name;
+            bt_bdname_t bdname;
+            BOOLEAN remote_name = FALSE;
+
+            BTIF_STORAGE_FILL_PROPERTY(&prop_name, BT_PROPERTY_BDNAME,
+                    sizeof(bt_bdname_t), &bdname);
+            if (btif_storage_get_remote_device_property((bt_bdaddr_t*)p_scb->peer_addr,
+                    &prop_name) == BT_STATUS_SUCCESS)
+            {
+                remote_name = TRUE;
+            }
+
+            if (interop_match_addr(INTEROP_DISABLE_CODEC_NEGOTIATION,
+                    (const bt_bdaddr_t*)p_scb->peer_addr) ||
+                    (remote_name && interop_match_name(INTEROP_DISABLE_CODEC_NEGOTIATION,
+                    (const char *)bdname.name)))
+            {
+                APPL_TRACE_IMP("%s disable codec negotiation for phone, remote" \
+                                  "for blacklisted device", __func__);
+                features = features & ~(BTA_AG_FEAT_CODEC);
+                p_scb->peer_features = p_scb->peer_features & ~(BTA_AG_PEER_FEAT_CODEC);
+
+            }
             /* send BRSF, send OK */
             bta_ag_send_result(p_scb, BTA_AG_RES_BRSF, NULL,
                                (INT16) features);
@@ -1368,6 +1403,7 @@ void bta_ag_at_hfp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
 
         case BTA_AG_HF_CMD_CNUM:
             break;
+
         case BTA_AG_HF_CMD_CLCC:
             if(!(p_scb->features & BTA_AG_FEAT_ECS))
             {
@@ -1562,7 +1598,6 @@ void bta_ag_at_err_cback(tBTA_AG_SCB *p_scb, BOOLEAN unknown, char *p_arg)
 void bta_ag_hsp_result(tBTA_AG_SCB *p_scb, tBTA_AG_API_RESULT *p_result)
 {
     UINT8 code = bta_ag_trans_result[p_result->result];
-
     APPL_TRACE_DEBUG("bta_ag_hsp_result : res = %d", p_result->result);
 
     switch(p_result->result)
@@ -1735,6 +1770,16 @@ void bta_ag_hfp_result(tBTA_AG_SCB *p_scb, tBTA_AG_API_RESULT *p_result)
             ** then  open sco.
             */
             bta_ag_send_call_inds(p_scb, p_result->result);
+
+            if (interop_match_addr(INTEROP_DELAY_SCO_FOR_MT_CALL,
+                (const bt_bdaddr_t*)p_scb->peer_addr))
+            {
+               /* Ensure that call active indicator is sent prior to SCO connection
+                  request by adding some delay. Some remotes are very strict in the
+                  order of call indicator and SCO connection request. */
+                APPL_TRACE_IMP("%s: sleeping 20msec before opening sco", __func__);
+                usleep(20*1000);
+            }
 
             if (!(p_scb->features & BTA_AG_FEAT_NOSCO))
             {

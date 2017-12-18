@@ -98,6 +98,14 @@ LOCAL_C_INCLUDES+= . \
                    $(LOCAL_PATH)/../utils/include \
                    $(bluetooth_C_INCLUDES)
 
+ifneq ($(TARGET_SUPPORTS_WEARABLES),true)
+LOCAL_C_INCLUDES+= . \
+                   vendor/qcom/opensource/bluetooth/system_bt_ext
+else
+LOCAL_C_INCLUDES+= . \
+                   device/qcom/msm8909w/opensource/bluetooth/system_bt_ext
+endif
+
 LOCAL_CFLAGS += $(bluetooth_CFLAGS) -DBUILDCFG
 LOCAL_CONLYFLAGS += $(bluetooth_CONLYFLAGS)
 LOCAL_CPPFLAGS += $(bluetooth_CPPFLAGS)

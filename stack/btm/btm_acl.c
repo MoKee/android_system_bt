@@ -47,7 +47,7 @@
 #include "l2c_int.h"
 #include "hcidefs.h"
 #include "bt_utils.h"
-
+#include "device/include/interop_config.h"
 
 extern fixed_queue_t *btu_general_alarm_queue;
 
@@ -60,75 +60,6 @@ static void btm_process_remote_ext_features (tACL_CONN *p_acl_cb, UINT8 num_read
 
 /* 3 seconds timeout waiting for responses */
 #define BTM_DEV_REPLY_TIMEOUT_MS (3 * 1000)
-
-/* Black listed car kits/headsets for incoming role switch */
-static const UINT8 btm_role_switch_black_list_prefix1[][3] = {{0x00, 0x0d, 0xfd}  /* MOT EQ5 */
-                                                             ,{0x00, 0x1b, 0xdc} /* BSHSBE20 */
-                                                             ,{0x00, 0x07, 0x04} /* Infiniti G37 2011 */
-                                                             ,{0xa4, 0x15, 0x66} /* Motorola Whisper */
-                                                             ,{0x00, 0x54, 0xaf} /* Jeep Uconnect */
-                                                            };
-/* Black listed car kits/headsets for outgoing role switch */
-static const UINT8 btm_role_switch_black_list_prefix2[][3] = {{0xfc, 0xc2, 0xde}  /* Toyota Prius 2015 */
-                                                             ,{0x00, 0x26, 0xb4} /* NAC FORD,2013 Lincoln */
-                                                             ,{0x00, 0x04, 0x3e} /* OBU II Bluetooth dongle */
-                                                             ,{0x00, 0x23, 0x01}  /* Roman R9020 */
-                                                             ,{0x00, 0x26, 0xb4} /* NAC FORD,2013 Lincoln */
-                                                             ,{0x1c, 0x48, 0xf9} /* Jabra Storm */
-                                                             ,{0x00, 0x54, 0xaf} /* Jeep Uconnect */
-                                                            };
-
-/*******************************************************************************
-**
-** Function         btm_blacklistted_for_incoming_role_switch
-**
-** Description      This function is called to find the blacklisted carkits
-**                  for role switch.
-**
-** Returns          TRUE, if black listed
-**
-*******************************************************************************/
-BOOLEAN btm_blacklistted_for_incoming_role_switch (BD_ADDR addr)
-{
-    int blacklistsize = 0;
-    int i =0;
-
-    blacklistsize = sizeof(btm_role_switch_black_list_prefix1)/sizeof(btm_role_switch_black_list_prefix1[0]);
-    for (i=0; i < blacklistsize; i++)
-    {
-        if (0 == memcmp(btm_role_switch_black_list_prefix1[i], addr, 3))
-        {
-            return TRUE;
-        }
-    }
-    return FALSE;
-}
-
-/*******************************************************************************
-**
-** Function         btm_blacklistted_for_outgoing_role_switch
-**
-** Description      This function is called to find the blacklisted carkits
-**                  for role switch.
-**
-** Returns          TRUE, if black listed
-**
-*******************************************************************************/
-BOOLEAN btm_blacklistted_for_outgoing_role_switch (BD_ADDR addr)
-{
-    int blacklistsize = 0;
-    int i =0;
-
-    blacklistsize = sizeof(btm_role_switch_black_list_prefix2)/sizeof(btm_role_switch_black_list_prefix2[0]);
-    for (i=0; i < blacklistsize; i++)
-    {
-        if (0 == memcmp(btm_role_switch_black_list_prefix2[i], addr, 3))
-        {
-            return TRUE;
-        }
-    }
-    return FALSE;
-}
 
 /*******************************************************************************
 **
@@ -569,6 +500,8 @@ void btm_acl_update_busy_level (tBTM_BLI_EVENT event)
     UINT8 busy_level = btm_cb.busy_level;
     BTM_TRACE_DEBUG ("btm_acl_update_busy_level");
     BOOLEAN old_inquiry_state = btm_cb.is_inquiry;
+    /*Initialize busy_level_flags to 0*/
+    evt.busy_level_flags = 0;
     switch (event)
     {
         case BTM_BLI_ACL_UP_EVT:
@@ -686,8 +619,8 @@ tBTM_STATUS BTM_SwitchRole (BD_ADDR remote_bd_addr, UINT8 new_role, tBTM_CMPL_CB
     BD_ADDR_PTR  p_bda;
 #endif
 
-    /* Make sure the local device supports switching */
-    if (!controller_get_interface()->supports_master_slave_role_switch())
+    /* Make sure the local/remote devices supports switching */
+    if (!btm_dev_support_switch(remote_bd_addr))
         return(BTM_MODE_UNSUPPORTED);
 
     if (btm_cb.devcb.p_switch_role_cb && p_cb)
@@ -704,8 +637,10 @@ tBTM_STATUS BTM_SwitchRole (BD_ADDR remote_bd_addr, UINT8 new_role, tBTM_CMPL_CB
     if ((p = btm_bda_to_acl(remote_bd_addr, BT_TRANSPORT_BR_EDR)) == NULL)
         return(BTM_UNKNOWN_ADDR);
 
+    bt_bdaddr_t remote_address;
+    bdcpy(remote_address.address, remote_bd_addr);
     /* Finished if already in desired role */
-    if ((p->link_role == new_role) || btm_blacklistted_for_outgoing_role_switch(remote_bd_addr))
+    if ((p->link_role == new_role) || (interop_database_match_addr(INTEROP_DISABLE_ROLE_SWITCH, (bt_bdaddr_t *)&remote_address)))
         return(BTM_SUCCESS);
 
 #if BTM_SCO_INCLUDED == TRUE
@@ -724,7 +659,7 @@ tBTM_STATUS BTM_SwitchRole (BD_ADDR remote_bd_addr, UINT8 new_role, tBTM_CMPL_CB
         return(BTM_BUSY);
     }
 
-    if (is_device_present(IOT_ROLE_CHANGE_BLACKLIST, remote_bd_addr))
+    if (interop_database_match_addr(INTEROP_DYNAMIC_ROLE_SWITCH, (bt_bdaddr_t *)&remote_address))
     {
 #if (defined(BTM_SAFE_REATTEMPT_ROLE_SWITCH) && BTM_SAFE_REATTEMPT_ROLE_SWITCH == TRUE)
         p_dev_rec = btm_find_dev (remote_bd_addr);
@@ -837,10 +772,15 @@ void btm_acl_encrypt_change (UINT16 handle, UINT8 status, UINT8 encr_enable)
                       handle, status, encr_enable);
     xx = btm_handle_to_acl_index(handle);
     /* don't assume that we can never get a bad hci_handle */
-    if (xx < MAX_L2CAP_LINKS)
+    if (xx < MAX_L2CAP_LINKS) {
         p = &btm_cb.acl_db[xx];
-    else
+    } else {
+        GENERATE_VENDOR_LOGS();
         return;
+    }
+
+    if (status != HCI_SUCCESS)
+        GENERATE_VENDOR_LOGS();
 
     /* Process Role Switch if active */
     if (p->switch_role_state == BTM_ACL_SWKEY_STATE_ENCRYPTION_OFF)
@@ -927,12 +867,15 @@ tBTM_STATUS BTM_SetLinkPolicy (BD_ADDR remote_bda, UINT16 *settings)
     /* First, check if hold mode is supported */
     if (*settings != HCI_DISABLE_ALL_LM_MODES)
     {
+        bt_bdaddr_t remote_address;
+        bdcpy(remote_address.address, remote_bda);
         if ( (*settings & HCI_ENABLE_MASTER_SLAVE_SWITCH) && (!HCI_SWITCH_SUPPORTED(localFeatures)) )
         {
             *settings &= (~HCI_ENABLE_MASTER_SLAVE_SWITCH);
             BTM_TRACE_API ("BTM_SetLinkPolicy switch not supported (settings: 0x%04x)", *settings );
         }
-        if ( (*settings & HCI_ENABLE_MASTER_SLAVE_SWITCH) && (btm_blacklistted_for_incoming_role_switch(remote_bda)) )
+        if ( (*settings & HCI_ENABLE_MASTER_SLAVE_SWITCH) &&
+            (interop_database_match_addr(INTEROP_DISABLE_ROLE_SWITCH_POLICY, (bt_bdaddr_t *)&remote_address)) )
         {
             *settings &= (~HCI_ENABLE_MASTER_SLAVE_SWITCH);
             BTM_TRACE_API ("BTM_SetLinkPolicy switch not supported (settings: 0x%04x)", *settings );
@@ -1005,7 +948,7 @@ void BTM_SetDefaultLinkPolicy (UINT16 settings)
     btsnd_hcic_write_def_policy_set(settings);
 }
 
-#if (defined(BLE_INCLUDED) && (BLE_INCLUDED == TRUE))
+
 void btm_use_preferred_conn_params(BD_ADDR bda) {
     tL2C_LCB *p_lcb = l2cu_find_lcb_by_bd_addr (bda, BT_TRANSPORT_LE);
     tBTM_SEC_DEV_REC    *p_dev_rec = btm_find_or_alloc_dev (bda);
@@ -1041,8 +984,6 @@ void btm_use_preferred_conn_params(BD_ADDR bda) {
                                            0, 0);
     }
 }
-#endif
-
 
 /*******************************************************************************
 **
@@ -1626,6 +1567,8 @@ void btm_blacklist_role_change_device (BD_ADDR bd_addr, UINT8 hci_status)
     tACL_CONN  *p = btm_bda_to_acl(bd_addr, BT_TRANSPORT_BR_EDR);
     tBTM_SEC_DEV_REC  *p_dev_rec = btm_find_dev (bd_addr);
     UINT32 cod = 0;
+    bt_bdaddr_t remote_bdaddr;
+    bdcpy(remote_bdaddr.address, bd_addr);
 
     if(!p || !p_dev_rec)
     {
@@ -1639,25 +1582,20 @@ void btm_blacklist_role_change_device (BD_ADDR bd_addr, UINT8 hci_status)
         ((p->switch_role_state == BTM_ACL_SWKEY_STATE_SWITCHING) ||
          (p->switch_role_state == BTM_ACL_SWKEY_STATE_IN_PROGRESS)) &&
         ((cod & COD_AUDIO_DEVICE) == COD_AUDIO_DEVICE) &&
-        (!is_device_present(IOT_ROLE_CHANGE_BLACKLIST, bd_addr)))
+        (!interop_database_match_addr(INTEROP_DYNAMIC_ROLE_SWITCH, (bt_bdaddr_t *)&remote_bdaddr)))
     {
         p->switch_role_failed_attempts++;
         if(p->switch_role_failed_attempts == BTM_MAX_SW_ROLE_FAILED_ATTEMPTS)
         {
             BTM_TRACE_WARNING ("btm_blacklist_device: BDA: %02x-%02x-%02x-%02x-%02x-%02x",
                 bd_addr[0], bd_addr[1], bd_addr[2], bd_addr[3], bd_addr[4], bd_addr[5]);
-            add_iot_device(IOT_DEV_CONF_FILE, IOT_ROLE_CHANGE_BLACKLIST,
-                            bd_addr, METHOD_BD);
+            interop_database_add_addr(INTEROP_DYNAMIC_ROLE_SWITCH, (bt_bdaddr_t *)&remote_bdaddr, 3);
         }
     }
     else if(hci_status == HCI_SUCCESS)
     {
 #if (defined(BTM_SAFE_REATTEMPT_ROLE_SWITCH) && BTM_SAFE_REATTEMPT_ROLE_SWITCH == TRUE)
-        if (is_device_present(IOT_ROLE_CHANGE_BLACKLIST, bd_addr))
-        {
-            remove_iot_device(IOT_DEV_CONF_FILE, IOT_ROLE_CHANGE_BLACKLIST,
-                            bd_addr, METHOD_BD);
-        }
+        interop_database_remove_addr(INTEROP_DYNAMIC_ROLE_SWITCH, (bt_bdaddr_t *)&remote_bdaddr);
 #endif
         p->switch_role_failed_attempts = 0;
     }
@@ -1694,6 +1632,8 @@ void btm_acl_role_changed (UINT8 hci_status, BD_ADDR bd_addr, UINT8 new_role)
         /* it could be a failure */
         if (hci_status != HCI_SUCCESS)
             btm_acl_report_role_change(hci_status, bd_addr);
+
+        GENERATE_VENDOR_LOGS();
         return;
     }
 
@@ -1716,6 +1656,7 @@ void btm_acl_role_changed (UINT8 hci_status, BD_ADDR bd_addr, UINT8 new_role)
     else
     {
         /* so the BTM_BL_ROLE_CHG_EVT uses the old role */
+        GENERATE_VENDOR_LOGS();
         new_role = p->link_role;
     }
 
@@ -2443,10 +2384,12 @@ void btm_read_tx_power_complete(UINT8 *p, BOOLEAN is_ble)
 *******************************************************************************/
 void btm_read_rssi_timeout(UNUSED_ATTR void *data)
 {
+    tBTM_RSSI_RESULTS  results;
     tBTM_CMPL_CB  *p_cb = btm_cb.devcb.p_rssi_cmpl_cb;
     btm_cb.devcb.p_rssi_cmpl_cb = NULL;
+    results.status = BTM_DEVICE_TIMEOUT;
     if (p_cb)
-        (*p_cb)((void *) NULL);
+        (*p_cb)(&results);
 }
 
 /*******************************************************************************
@@ -2810,6 +2753,7 @@ BOOLEAN  btm_acl_notif_conn_collision (BD_ADDR bda)
 {
     tBTM_BL_EVENT_DATA  evt_data;
 
+    GENERATE_VENDOR_LOGS();
     /* Report possible collision to the upper layer. */
     if (btm_cb.p_bl_changed_cb)
     {

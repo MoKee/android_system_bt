@@ -155,6 +155,7 @@ typedef struct _btif_hf_cb
     struct timespec         call_end_timestamp;
     struct timespec         connected_timestamp;
     bthf_call_state_t       call_setup_state;
+    bthf_audio_state_t      audio_state;
 } btif_hf_cb_t;
 
 static btif_hf_cb_t btif_hf_cb[BTIF_HF_NUM_CB];
@@ -444,6 +445,40 @@ static bt_status_t btif_hf_check_if_slc_connected()
     }
 }
 
+/*******************************************************************************
+**
+** Function         btif_hf_check_if_sco_connected
+**
+** Description      Returns BT_STATUS_SUCCESS if SCO is up for any HF
+**
+** Returns          bt_status_t
+**
+*******************************************************************************/
+static bt_status_t btif_hf_check_if_sco_connected()
+{
+    if (bt_hf_callbacks == NULL)
+    {
+        BTIF_TRACE_WARNING("BTHF: %s: BTHF not initialized. ", __FUNCTION__);
+        return BT_STATUS_NOT_READY;
+    }
+    else
+    {
+        int i;
+        for (i = 0; i < btif_max_hf_clients; i++)
+        {
+            if ((btif_hf_cb[i].audio_state == BTHF_AUDIO_STATE_CONNECTED) ||
+                (btif_hf_cb[i].audio_state == BTHF_AUDIO_STATE_CONNECTING))
+            {
+                BTIF_TRACE_EVENT("BTHF: %s: sco connected/connecting for idx = %d",
+                                         __FUNCTION__, i);
+                return BT_STATUS_SUCCESS;
+            }
+        }
+        BTIF_TRACE_WARNING("BTHF: %s: No SCO connection up", __FUNCTION__);
+        return BT_STATUS_NOT_READY;
+    }
+}
+
 /*****************************************************************************
 **   Section name (Group of functions)
 *****************************************************************************/
@@ -467,11 +502,23 @@ static void btif_hf_upstreams_evt(UINT16 event, char* p_param)
 {
     tBTA_AG *p_data = (tBTA_AG *)p_param;
     bdstr_t bdstr;
-    int idx = p_data->hdr.handle - 1;
+    int idx;
     BOOLEAN ignore_rfc_fail = false;
 
     BTIF_TRACE_IMP("%s: event=%s", __FUNCTION__, dump_hf_event(event));
 
+    // for BTA_AG_ENABLE_EVT/BTA_AG_DISABLE_EVT, p_data is NULL
+    if (event == BTA_AG_ENABLE_EVT || event == BTA_AG_DISABLE_EVT)
+        return;
+
+    // p_data is NULL for any other event, return
+    if (p_data == NULL)
+    {
+        BTIF_TRACE_ERROR("%s: data is NULL", __FUNCTION__);
+        return;
+    }
+
+    idx = p_data->hdr.handle - 1;
     if ((idx < 0) || (idx >= BTIF_HF_NUM_CB))
     {
         BTIF_TRACE_ERROR("%s: Invalid index %d", __FUNCTION__, idx);
@@ -480,10 +527,6 @@ static void btif_hf_upstreams_evt(UINT16 event, char* p_param)
 
     switch (event)
     {
-        case BTA_AG_ENABLE_EVT:
-        case BTA_AG_DISABLE_EVT:
-            break;
-
         case BTA_AG_REGISTER_EVT:
             btif_hf_cb[idx].handle = p_data->reg.hdr.handle;
             BTIF_TRACE_DEBUG("%s: BTA_AG_REGISTER_EVT,"
@@ -532,13 +575,17 @@ static void btif_hf_upstreams_evt(UINT16 event, char* p_param)
             if (btif_hf_cb[idx].state == BTHF_CONNECTION_STATE_DISCONNECTED)
                 bdsetany(btif_hf_cb[idx].connected_bda.address);
 
-            btif_queue_advance();
+            if (p_data->open.status != BTA_AG_SUCCESS)
+                btif_queue_advance();
 
             break;
 
         case BTA_AG_CLOSE_EVT:
             btif_hf_cb[idx].connected_timestamp.tv_sec = 0;
             btif_hf_cb[idx].state = BTHF_CONNECTION_STATE_DISCONNECTED;
+
+            BTIF_TRACE_IMP("%s: Moving the audio_state to DISCONNECTED", __FUNCTION__);
+            btif_hf_cb[idx].audio_state = BTHF_AUDIO_STATE_DISCONNECTED;
             BTIF_TRACE_DEBUG("%s: BTA_AG_CLOSE_EVT,"
                  "idx = %d, btif_hf_cb.handle = %d", __FUNCTION__, idx,
                           btif_hf_cb[idx].handle);
@@ -565,15 +612,20 @@ static void btif_hf_upstreams_evt(UINT16 event, char* p_param)
 
             HAL_CBACK(bt_hf_callbacks, connection_state_cb, btif_hf_cb[idx].state,
                              &btif_hf_cb[idx].connected_bda);
+            btif_queue_advance();
             break;
 
         case BTA_AG_AUDIO_OPEN_EVT:
             hf_idx = idx;
+            BTIF_TRACE_IMP("%s: Moving the audio_state to CONNECTED", __FUNCTION__);
+            btif_hf_cb[idx].audio_state = BTHF_AUDIO_STATE_CONNECTED;
             HAL_CBACK(bt_hf_callbacks, audio_state_cb, BTHF_AUDIO_STATE_CONNECTED,
                                                         &btif_hf_cb[idx].connected_bda);
             break;
 
         case BTA_AG_AUDIO_CLOSE_EVT:
+            BTIF_TRACE_IMP("%s: Moving the audio_state to DISCONNECTED", __FUNCTION__);
+            btif_hf_cb[idx].audio_state = BTHF_AUDIO_STATE_DISCONNECTED;
             HAL_CBACK(bt_hf_callbacks, audio_state_cb, BTHF_AUDIO_STATE_DISCONNECTED,
                                                            &btif_hf_cb[idx].connected_bda);
             break;
@@ -804,6 +856,8 @@ static void btif_in_hf_generic_evt(UINT16 event, char *p_param)
     switch (event) {
         case BTIF_HFP_CB_AUDIO_CONNECTING:
         {
+            BTIF_TRACE_IMP("%s: Moving the audio_state to CONNECTING", __FUNCTION__);
+            btif_hf_cb[idx].audio_state = BTHF_AUDIO_STATE_CONNECTING;
             HAL_CBACK(bt_hf_callbacks, audio_state_cb, BTHF_AUDIO_STATE_CONNECTING,
                       &btif_hf_cb[idx].connected_bda);
         } break;
@@ -1367,6 +1421,8 @@ static bt_status_t phone_state_change(int num_active, int num_held, bthf_call_st
     BOOLEAN activeCallUpdated = FALSE;
     int idx, i;
 
+    memset(&ag_res, 0, sizeof(ag_res));
+
     /* hf_idx is index of connected HS that sent ATA/BLDN,
             otherwise index of latest connected HS */
     if (hf_idx != BTIF_HF_INVALID_IDX)
@@ -1427,6 +1483,9 @@ static bt_status_t phone_state_change(int num_active, int num_held, bthf_call_st
 
         memset(&ag_res, 0, sizeof(tBTA_AG_RES_DATA));
         ag_res.audio_handle = btif_hf_cb[idx].handle;
+
+        BTIF_TRACE_IMP("%s: Moving the audio_state to CONNECTING", __FUNCTION__);
+        btif_hf_cb[idx].audio_state = BTHF_AUDIO_STATE_CONNECTING;
         /* Addition call setup with the Active call
         ** CIND response should have been updated.
         ** just open SCO conenction.
@@ -1458,6 +1517,10 @@ static bt_status_t phone_state_change(int num_active, int num_held, bthf_call_st
                         {
                             res = BTA_AG_IN_CALL_CONN_RES;
                             ag_res.audio_handle = btif_hf_cb[idx].handle;
+
+                            BTIF_TRACE_IMP("%s: Moving the audio_state to CONNECTING",
+                                              __FUNCTION__);
+                            btif_hf_cb[idx].audio_state = BTHF_AUDIO_STATE_CONNECTING;
                         }
                         else if (num_held > btif_hf_cb[idx].num_held)
                             res = BTA_AG_IN_CALL_HELD_RES;
@@ -1503,6 +1566,9 @@ static bt_status_t phone_state_change(int num_active, int num_held, bthf_call_st
                 if (!(num_active + num_held))
                 {
                     ag_res.audio_handle = btif_hf_cb[idx].handle;
+
+                    BTIF_TRACE_IMP("%s: Moving the audio_state to CONNECTING", __FUNCTION__);
+                    btif_hf_cb[idx].audio_state = BTHF_AUDIO_STATE_CONNECTING;
                 }
                 else
                 {
@@ -1516,6 +1582,9 @@ static bt_status_t phone_state_change(int num_active, int num_held, bthf_call_st
                         !(num_active + num_held))
                 {
                     ag_res.audio_handle = btif_hf_cb[idx].handle;
+
+                    BTIF_TRACE_IMP("%s: Moving the audio_state to CONNECTING", __FUNCTION__);
+                    btif_hf_cb[idx].audio_state = BTHF_AUDIO_STATE_CONNECTING;
                 }
                 else
                 {
@@ -1590,14 +1659,14 @@ update_call_states:
 
 /*******************************************************************************
 **
-** Function         btif_hf_is_call_idle
+** Function         btif_hf_is_call_vr_idle
 **
 ** Description      returns true if no call is in progress
 **
 ** Returns          bt_status_t
 **
 *******************************************************************************/
-BOOLEAN btif_hf_is_call_idle()
+BOOLEAN btif_hf_is_call_vr_idle()
 {
     int i, j = 1;
 
@@ -1615,9 +1684,9 @@ BOOLEAN btif_hf_is_call_idle()
                 ((btif_hf_cb[i].num_held + btif_hf_cb[i].num_active) == 0));
     }
 
-    if (j)
+    if (j && (btif_hf_check_if_sco_connected() != BT_STATUS_SUCCESS))
     {
-        BTIF_TRACE_EVENT("%s: call state idle ", __FUNCTION__);
+        BTIF_TRACE_EVENT("%s: call state idle and no sco connected.", __FUNCTION__);
         return TRUE;
     }
     else

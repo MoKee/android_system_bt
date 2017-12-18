@@ -580,7 +580,7 @@
 
 /* The maximum number of simultaneous channels that L2CAP can support. */
 #ifndef MAX_L2CAP_CHANNELS
-#define MAX_L2CAP_CHANNELS          16
+#define MAX_L2CAP_CHANNELS          20
 #endif
 
 /* The maximum number of simultaneous links that L2CAP can support. */
@@ -592,7 +592,7 @@
 
 /* The maximum number of simultaneous applications that can register with L2CAP. */
 #ifndef MAX_L2CAP_CLIENTS
-#define MAX_L2CAP_CLIENTS           15
+#define MAX_L2CAP_CLIENTS           19
 #endif
 
 /* The number of seconds of link inactivity before a link is disconnected. */
@@ -727,6 +727,14 @@
 #define BLE_INCLUDED            TRUE
 #endif
 
+/*LE_L2CAP_CODE*/
+/*LE Credit Based Flow Control Mode*/
+#if (defined(BLE_INCLUDED) && (BLE_INCLUDED == TRUE))
+#ifndef LE_L2CAP_CFC_INCLUDED
+#define LE_L2CAP_CFC_INCLUDED        TRUE
+#endif  /*LE_L2CAP_CFC_INCLUDED */
+#endif /* BLE_INCLUDED */
+
 #ifndef BLE_ANDROID_CONTROLLER_SCAN_FILTER
 #define BLE_ANDROID_CONTROLLER_SCAN_FILTER            TRUE
 #endif
@@ -741,6 +749,10 @@
  */
 #ifndef BLE_PRIVACY_SPT
 #define BLE_PRIVACY_SPT         TRUE
+#endif
+
+#ifndef BLE_EXTENDED_ADV_SUPPORT
+#define BLE_EXTENDED_ADV_SUPPORT TRUE
 #endif
 
 /*

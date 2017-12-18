@@ -551,8 +551,6 @@ typedef struct
     tBTM_BD_NAME    sec_bd_name;        /* User friendly name of the device. (may be truncated to save space in dev_rec table) */
     BD_FEATURES     features[HCI_EXT_FEATURES_PAGE_MAX + 1];           /* Features supported by the device */
     UINT8           num_read_pages;
-    UINT8           rnr_retry_cnt;
-    UINT8           cc_retry_cnt;
 
 #define BTM_SEC_STATE_IDLE               0
 #define BTM_SEC_STATE_AUTHENTICATING     1
@@ -833,6 +831,7 @@ typedef struct
     UINT16                  ediv;       /* received ediv value from LTK request */
     UINT8                   key_size;
     tBTM_BLE_VSC_CB         cmn_ble_vsc_cb;
+    tBTM_BLE_ADV_EXT_CB     ble_adv_ext_cb;
 #endif
 
                                             /* Packet types supported by the local device */
@@ -862,7 +861,6 @@ typedef struct
 
     tBTM_SEC_DEV_REC        *p_collided_dev_rec;
     alarm_t                 *sec_collision_timer;
-    tBTM_SEC_DEV_REC        *p_cc_retry_dev_rec;
     UINT32                   collision_start_time;
     UINT32                   max_collision_delay;
     UINT32                   dev_rec_count;      /* Counter used for device record timestamp */
@@ -1057,6 +1055,9 @@ extern BOOLEAN btm_ble_addr_resolvable(BD_ADDR rpa, tBTM_SEC_DEV_REC *p_dev_rec)
 extern tBTM_STATUS btm_ble_read_resolving_list_entry(tBTM_SEC_DEV_REC *p_dev_rec);
 extern BOOLEAN btm_ble_resolving_list_load_dev(tBTM_SEC_DEV_REC *p_dev_rec);
 extern void btm_ble_resolving_list_remove_dev(tBTM_SEC_DEV_REC *p_dev_rec);
+#if (defined BLE_EXTENDED_ADV_SUPPORT && (BLE_EXTENDED_ADV_SUPPORT == TRUE))
+extern BOOLEAN btm_ble_add_multi_adv_rpa(BD_ADDR bda, tBLE_ADDR_TYPE addr_type);
+#endif
 #endif  /* BLE_INCLUDED */
 
 /* HCI event handler */

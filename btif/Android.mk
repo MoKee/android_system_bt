@@ -122,10 +122,12 @@ btifCommonIncludes := \
 
 ifneq ($(TARGET_SUPPORTS_WEARABLES),true)
 btifCommonIncludes += \
-   vendor/qcom/opensource/bluetooth/hal/include
+   vendor/qcom/opensource/bluetooth/hal/include \
+   vendor/qcom/opensource/bluetooth/system_bt_ext
 else
 btifCommonIncludes += \
-   device/qcom/msm8909w/opensource/bluetooth/hal/include
+   device/qcom/msm8909w/opensource/bluetooth/hal/include \
+   device/qcom/msm8909w/opensource/bluetooth/system_bt_ext
 endif
 
 # libbtif static library for target
@@ -152,7 +154,7 @@ include $(CLEAR_VARS)
 LOCAL_C_INCLUDES := $(btifCommonIncludes)
 LOCAL_SRC_FILES := $(btifTestSrc)
 LOCAL_SHARED_LIBRARIES += liblog libhardware libhardware_legacy libcutils
-LOCAL_STATIC_LIBRARIES += libbtcore libbtif libosi
+LOCAL_STATIC_LIBRARIES += libbtcore libbtif libosi libbtdevice
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE := net_test_btif
 

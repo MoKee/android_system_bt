@@ -215,6 +215,7 @@ const tBTA_AV_NSM_ACT bta_av_nsm_act[] =
     bta_av_api_to_ssm,              /* BTA_AV_API_STOP_EVT */
     bta_av_api_update_max_av_clients,
     bta_av_api_enable_multicast,    /* BTA_AV_ENABLE_MULTICAST_EVT */
+    bta_av_rc_collission_detected, /* BTA_AV_RC_COLLISSION_DETECTED_EVT */
 };
 
 /*****************************************************************************
@@ -543,6 +544,7 @@ static void bta_av_api_register(tBTA_AV_DATA *p_data)
     do
     {
         p_scb = bta_av_alloc_scb(registr.chnl);
+        cs.registration_id = p_scb->hdi;
         if(p_scb == NULL)
         {
             APPL_TRACE_ERROR("failed to alloc SCB");
@@ -769,8 +771,11 @@ static void bta_av_api_register(tBTA_AV_DATA *p_data)
                     continue;
                 }
 
-                if(AVDT_CreateStream(&p_scb->seps[index - startIndex].av_handle, &cs) ==
-                                                                            AVDT_SUCCESS)
+                /* Fix for below klockwork Issues
+                 * Array 'seps' of size 4 may use index value(s) 4 */
+                if (((index - startIndex) < BTA_AV_MAX_SEPS) &&
+                    (AVDT_CreateStream(&p_scb->seps[index - startIndex].av_handle, &cs) ==
+                                                                             AVDT_SUCCESS))
                 {
                    if ((profile_initialized == UUID_SERVCLASS_AUDIO_SOURCE) &&
                        ((index == BTIF_SV_AV_AA_APTX_INDEX) || (index == BTIF_SV_AV_AA_APTX_HD_INDEX)))
@@ -978,8 +983,7 @@ static void bta_av_api_to_ssm(tBTA_AV_DATA *p_data)
      * streams are not yet started. We need to take care of this
      * during suspend to ensure we suspend both streams.
      */
-    if ((is_multicast_enabled == TRUE) ||
-        ((event == BTA_AV_AP_STOP_EVT) && (bta_av_multiple_streams_started() == TRUE)))
+    if (is_multicast_enabled == TRUE)
     {
         /* Send START request to all Open Stream connections.*/
         for(xx=0; xx<BTA_AV_NUM_STRS; xx++)

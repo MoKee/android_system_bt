@@ -125,10 +125,25 @@ static const interop_addr_entry_t interop_addr_database[] = {
 
   // Mazda Atenza
   {{{0x04, 0xf8, 0xc2,      0,0,0}}, 3, INTEROP_DISABLE_ABSOLUTE_VOLUME},
+  // Remote not playing back Audio, suspected to be Audio encoder version diff
+  // Beats Solo 3
+  {{{0x20, 0x3c, 0xae,      0,0,0}}, 3, INTEROP_DISABLE_AAC_CODEC},
+  //Apple Airpods Headset
+  {{{0x4c, 0x32, 0x75,      0,0,0}}, 3, INTEROP_DISABLE_AAC_CODEC},
+  // Remote sending 128 as bitrate in place of 128000
+  // Cadillac
+  {{{0x28, 0xA1, 0x83,      0,0,0}}, 3, INTEROP_DISABLE_AAC_CODEC},
+  // Buick Verona
+  {{{0xAC, 0x7A, 0x4D,      0,0,0}}, 3, INTEROP_DISABLE_AAC_CODEC},
+  //Maruthi Brezzai
+  {{{0x28, 0xa1, 0x83,      0,0,0}}, 3, INTEROP_DISABLE_AAC_CODEC},
+  // Parrot Zik2.0
+  {{{0xA0, 0x14, 0x3D,      0,0,0}}, 3, INTEROP_DISABLE_AAC_CODEC},
+
 };
 
 typedef struct {
-  char name[40];
+  char name[249];
   size_t length;
   interop_feature_t feature;
 } interop_name_entry_t;
@@ -157,10 +172,15 @@ static const interop_name_entry_t interop_name_database[] = {
   // HID Authentication Blacklist
   {"Targus BT Laser Notebook Mouse", 30, INTEROP_DISABLE_AUTH_FOR_HID_POINTING},
 
+  //Below devices reject connection updated with preferred
+  {"BSMBB09DS", 9, INTEROP_DISABLE_LE_CONN_PREFERRED_PARAMS},
+  {"ELECOM", 6, INTEROP_DISABLE_LE_CONN_PREFERRED_PARAMS},
+  {"MB Bluetooth", 12, INTEROP_ADV_AVRCP_VER_1_3},
+
   // HID Moto KZ500 Keyboard - Problematic SDP digitizer descriptor
   {"Motorola Keyboard KZ500", 23, INTEROP_REMOVE_HID_DIG_DESCRIPTOR},
   {"Motorola Keyboard KZ500 v122", 28, INTEROP_REMOVE_HID_DIG_DESCRIPTOR},
-  {"MB Bluetooth", 12, INTEROP_ADV_AVRCP_VER_1_3},
+
 };
 
 typedef struct {

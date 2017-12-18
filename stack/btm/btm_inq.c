@@ -171,6 +171,11 @@ tBTM_STATUS BTM_SetDiscoverability (UINT16 inq_mode, UINT16 window, UINT16 inter
     BOOLEAN      cod_limited;
 
     BTM_TRACE_API ("BTM_SetDiscoverability");
+
+    /* Make sure the controller is active */
+    if (!controller_get_interface()->get_is_ready())
+        return (BTM_DEV_RESET);
+
 #if (BLE_INCLUDED == TRUE && BLE_INCLUDED == TRUE)
     if (controller_get_interface()->supports_ble())
     {
@@ -187,10 +192,6 @@ tBTM_STATUS BTM_SetDiscoverability (UINT16 inq_mode, UINT16 window, UINT16 inter
     /*** Check mode parameter ***/
     if (inq_mode > BTM_MAX_DISCOVERABLE)
         return (BTM_ILLEGAL_VALUE);
-
-    /* Make sure the controller is active */
-    if (!controller_get_interface()->get_is_ready())
-        return (BTM_DEV_RESET);
 
     /* If the window and/or interval is '0', set to default values */
     if (!window)
@@ -844,7 +845,17 @@ tBTM_STATUS BTM_StartInquiry (tBTM_INQ_PARMS *p_inqparms, tBTM_INQ_RESULTS_CB *p
             p_inq->scan_type = INQ_GENERAL;
             p_inq->inq_active = BTM_INQUIRY_INACTIVE;
             btm_cb.ble_ctr_cb.inq_var.scan_type = BTM_BLE_SCAN_MODE_NONE;
-            btsnd_hcic_ble_set_scan_enable (BTM_BLE_SCAN_DISABLE, BTM_BLE_DUPLICATE_ENABLE);
+
+#if (defined BLE_EXTENDED_ADV_SUPPORT && (BLE_EXTENDED_ADV_SUPPORT == TRUE))
+            if (controller_get_interface()->supports_ble_extended_advertisements())
+            {
+                btsnd_hcic_ble_set_extended_scan_enable(BTM_BLE_SCAN_DISABLE,BTM_BLE_DUPLICATE_ENABLE, 0, 0);
+            }
+            else
+#endif
+            {
+                btsnd_hcic_ble_set_scan_enable (BTM_BLE_SCAN_DISABLE, BTM_BLE_DUPLICATE_ENABLE);
+            }
         }
         else
 #endif
@@ -2052,6 +2063,8 @@ void btm_process_inq_results (UINT8 *p, UINT8 inq_res_mode)
             else
                 p_eir_data = NULL;
 
+            /* Set EIR data length */
+            p_cur->adv_data_len = HCI_EXT_INQ_RESPONSE_LEN;
             /* If a callback is registered, call it with the results */
             if (p_inq_results_cb)
                 (p_inq_results_cb)((tBTM_INQ_RESULTS *) p_cur, p_eir_data);
@@ -2198,7 +2211,7 @@ void btm_process_inq_complete (UINT8 status, UINT8 mode)
         if(p_inq->p_inq_ble_results_cb != NULL)
         {
             BTM_TRACE_DEBUG("BTM Inq Compl: resuming a pending LE scan");
-            BTM_BleObserve(1,0, p_inq->p_inq_ble_results_cb, p_inq->p_inq_ble_cmpl_cb);
+            BTM_BleObserve(1,0/*duration*/, 0 /*period*/, p_inq->p_inq_ble_results_cb, p_inq->p_inq_ble_cmpl_cb);
         }
 #endif
     }
@@ -2525,7 +2538,7 @@ tBTM_STATUS BTM_WriteEIR( BT_HDR *p_buff )
 ** Returns          pointer of EIR data
 **
 *******************************************************************************/
-UINT8 *BTM_CheckEirData( UINT8 *p_eir, UINT8 type, UINT8 *p_length )
+UINT8 *BTM_CheckEirData( UINT8 *p_eir, UINT8 type, UINT8 *p_length, UINT16 adv_data_len )
 {
     UINT8 *p = p_eir;
     UINT8 length;
@@ -2533,7 +2546,7 @@ UINT8 *BTM_CheckEirData( UINT8 *p_eir, UINT8 type, UINT8 *p_length )
     BTM_TRACE_API("BTM_CheckEirData type=0x%02X", type);
 
     STREAM_TO_UINT8(length, p);
-    while( length && (p - p_eir <= HCI_EXT_INQ_RESPONSE_LEN))
+    while( length && (p - p_eir <= adv_data_len))
     {
         STREAM_TO_UINT8(eir_type, p);
         if( eir_type == type )
@@ -2830,10 +2843,10 @@ static UINT8 *btm_eir_get_uuid_list( UINT8 *p_eir, UINT8 uuid_size,
         break;
     }
 
-    p_uuid_data = BTM_CheckEirData( p_eir, complete_type, &uuid_len );
+    p_uuid_data = BTM_CheckEirData( p_eir, complete_type, &uuid_len, HCI_EXT_INQ_RESPONSE_LEN);
     if(p_uuid_data == NULL)
     {
-        p_uuid_data = BTM_CheckEirData( p_eir, more_type, &uuid_len );
+        p_uuid_data = BTM_CheckEirData( p_eir, more_type, &uuid_len, HCI_EXT_INQ_RESPONSE_LEN);
         *p_uuid_list_type = more_type;
     }
     else
